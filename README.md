@@ -50,7 +50,7 @@ flowchart TD
     Baseline["Baseline Role<br/>Cluster infra via Helm"]
 
     subgraph Baseline_Components ["Baseline Components"]
-        Ingress["Ingress Controller<br/>nginx / Contour / Istio"]
+        Ingress["Ingress Controller<br/>Contour"]
         Cert["cert-manager<br/>TLS certs"]
         CSI["CSI Drivers<br/>NFS / EBS / Azure Disk"]
         Metrics["metrics-server<br/>(AWS only)"]
@@ -113,7 +113,7 @@ flowchart TD
 Here is a list of tasks that this tool can perform (also see [playbook overview](./playbooks/README.md) for info on the default tasks):
 
 - Prepare Kubernetes cluster
-  - Deploy [ingress-nginx](https://kubernetes.github.io/ingress-nginx)
+  - Deploy [Contour](https://projectcontour.io/)
   - Deploy [csi-driver-nfs](https://github.com/kubernetes-csi/csi-driver-nfs) for PVs
   - Deploy [cert-manager](https://github.com/jetstack/cert-manager) for TLS
   - Deploy [metrics-server](https://github.com/bitnami/charts/tree/master/bitnami/metrics-server/) (AWS only)
@@ -474,7 +474,7 @@ V4_CFG_CR_USER: <cr-user>
 V4_CFG_CR_PASSWORD: <cr-password>
 
 ## Ingress
-V4_CFG_INGRESS_TYPE: contour        # or ingress-nginx / istio
+V4_CFG_INGRESS_TYPE: contour
 V4_CFG_INGRESS_FQDN: viya.example.com
 V4_CFG_TLS_MODE: full-stack        # or front-door / ingress-only / disabled
 
