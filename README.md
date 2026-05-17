@@ -391,6 +391,196 @@ For example:
             /openldap-modify-users.yaml <- openldap overlay
  ```
 
+## Deploying to a Custom Kubernetes Cluster
+
+This guide walks through a full deployment on a bring-your-own Kubernetes cluster (no SAS IaC Terraform projects).
+
+### Prerequisites
+
+- A Kubernetes cluster (EKS, AKS, GKE, or any CNCF-compliant distribution) with `kubectl` access
+- An NFS server with a filesystem export accessible from the cluster
+- A DNS domain/wildcard pointing to the cluster's ingress load balancer IP
+- Tools installed locally: Python >= 3.10, Docker >= 25.0.3, Helm 3.16.2, `kubectl` 1.30-1.32, `git`, `unzip`, `tar`
+- A valid SAS Viya software order (with order number, cadence, and CR credentials)
+
+### Step 1: Clone and Install Dependencies
+
+```bash
+git clone https://github.com/sassoftware/viya4-deployment
+cd viya4-deployment
+
+# Python dependencies
+pip3 install --user -r requirements.txt
+
+# Ansible Galaxy collections
+ansible-galaxy collection install -r requirements.yaml -f
+
+# Build the Docker image (if using Docker method)
+docker build -t viya4-deployment .
+```
+
+### Step 2: Prepare Directory Structure and NFS Storage
+
+Create the deployment directory layout and NFS export folders:
+
+```bash
+export BASE_DIR=$HOME/deployments
+export CLUSTER_NAME=my-cluster
+export NAMESPACE=my-namespace
+export NFS_EXPORT=/sasdata          # path on your NFS server
+export NFS_SERVER=<nfs-server-ip>
+
+mkdir -p $BASE_DIR/$CLUSTER_NAME/$NAMESPACE/site-config
+```
+
+On the NFS server, ensure the following subdirectories exist under your export:
+
+```bash
+$NFS_EXPORT/pvs
+$NFS_EXPORT/$NAMESPACE/bin
+$NFS_EXPORT/$NAMESPACE/data
+$NFS_EXPORT/$NAMESPACE/homes
+$NFS_EXPORT/$NAMESPACE/astores
+```
+
+### Step 3: Create Configuration File
+
+Create `$BASE_DIR/$CLUSTER_NAME/$NAMESPACE/ansible-vars.yaml`:
+
+```yaml
+---
+## Cluster
+PROVIDER: custom                   # or aws/azure/gcp
+CLUSTER_NAME: my-cluster
+NAMESPACE: my-namespace
+
+## MISC
+DEPLOY: true
+LOADBALANCER_SOURCE_RANGES: ["0.0.0.0/0"]
+
+## RWX Filestore (NFS)
+V4_CFG_RWX_FILESTORE_ENDPOINT: <nfs-server-ip>
+V4_CFG_RWX_FILESTORE_PATH: /sasdata
+
+## SAS API Access (from your SAS order)
+V4_CFG_APIM_CLIENT_ID: <client-id>
+V4_CFG_APIM_CLIENT_SECRET: <client-secret>
+V4_CFG_ORDER_NUMBER: <order-number>
+V4_CFG_CADENCE_NAME: stable        # or lts
+V4_CFG_CADENCE_VERSION: <version>  # e.g. 2024.09
+
+## Container Registry Access
+V4_CFG_CR_USER: <cr-user>
+V4_CFG_CR_PASSWORD: <cr-password>
+
+## Ingress
+V4_CFG_INGRESS_TYPE: ingress-nginx  # or contour / istio
+V4_CFG_INGRESS_FQDN: viya.example.com
+V4_CFG_TLS_MODE: full-stack        # or front-door / ingress-only / disabled
+
+## Postgres (external recommended for production)
+V4_CFG_POSTGRES_SERVERS:
+  default:
+    internal: true                  # or false with external PG details
+
+## LDAP
+V4_CFG_EMBEDDED_LDAP_ENABLE: true
+```
+
+For all available variables, see [CONFIG-VARS.md](docs/CONFIG-VARS.md).
+
+### Step 4: (Optional) Add a Sitedefault File
+
+Place a `sitedefault.yaml` in `$BASE_DIR/$CLUSTER_NAME/$NAMESPACE/site-config/` and set the path in your `ansible-vars.yaml`:
+
+```yaml
+V4_CFG_SITEDEFAULT: site-config/sitedefault.yaml
+```
+
+### Step 5: (Optional) Add Custom Overlays
+
+Place any custom kustomize overlays into subdirectories under `site-config/`. For example:
+
+```bash
+$BASE_DIR/$CLUSTER_NAME/$NAMESPACE/site-config/
+  |-- sitedefault.yaml
+  |-- cas-server/
+  |     |-- my-cas-overlay.yaml
+  |-- openldap/
+        |-- openldap-modify-users.yaml
+```
+
+### Step 6: Deploy Baseline Infrastructure
+
+Install cluster-level components (ingress controller, cert-manager, NFS CSI driver):
+
+**Docker method:**
+```bash
+docker run --rm \
+  --group-add root \
+  --user $(id -u):$(id -g) \
+  --volume $BASE_DIR:/data \
+  --volume $HOME/.kube/config:/config/kubeconfig \
+  --volume $BASE_DIR/$CLUSTER_NAME/$NAMESPACE/ansible-vars.yaml:/config/config \
+  viya4-deployment --tags "baseline,install"
+```
+
+**Ansible method:**
+```bash
+ansible-playbook \
+  -e BASE_DIR=$BASE_DIR \
+  -e KUBECONFIG=$HOME/.kube/config \
+  -e CONFIG=$BASE_DIR/$CLUSTER_NAME/$NAMESPACE/ansible-vars.yaml \
+  playbooks/playbook.yaml --tags "baseline,install"
+```
+
+After this completes, verify the ingress controller has a load balancer endpoint:
+
+```bash
+kubectl get svc -n ingress-nginx
+```
+
+### Step 7: Deploy SAS Viya Platform
+
+Once the baseline is healthy, deploy SAS Viya:
+
+**Docker method:**
+```bash
+docker run --rm \
+  --group-add root \
+  --user $(id -u):$(id -g) \
+  --volume $BASE_DIR:/data \
+  --volume $HOME/.kube/config:/config/kubeconfig \
+  --volume $BASE_DIR/$CLUSTER_NAME/$NAMESPACE/ansible-vars.yaml:/config/config \
+  viya4-deployment --tags "viya,install"
+```
+
+**Ansible method:**
+```bash
+ansible-playbook \
+  -e BASE_DIR=$BASE_DIR \
+  -e KUBECONFIG=$HOME/.kube/config \
+  -e CONFIG=$BASE_DIR/$CLUSTER_NAME/$NAMESPACE/ansible-vars.yaml \
+  playbooks/playbook.yaml --tags "viya,install"
+```
+
+This step downloads the SAS deployment assets, generates kustomize manifests, and deploys all SAS Viya microservices into your cluster.
+
+### Step 8: Configure DNS
+
+After deployment, find the ingress load balancer address:
+
+```bash
+kubectl get svc -n ingress-nginx ingress-nginx-controller \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+```
+
+Create a DNS A record pointing `viya.example.com` to this IP, and a wildcard CNAME `*.viya.example.com` pointing to `viya.example.com`.
+
+### Step 9: Verify
+
+Access `https://viya.example.com` in a browser. The default administrator user is `viya_admin` (password set in your sitedefault or the default sitedefault).
+
 ## Creating and Managing Deployments
 
 Create and manage deployments using one of the following methods: 
