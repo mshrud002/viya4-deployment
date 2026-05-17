@@ -474,7 +474,7 @@ V4_CFG_CR_USER: <cr-user>
 V4_CFG_CR_PASSWORD: <cr-password>
 
 ## Ingress
-V4_CFG_INGRESS_TYPE: ingress-nginx  # or contour / istio
+V4_CFG_INGRESS_TYPE: contour        # or ingress-nginx / istio
 V4_CFG_INGRESS_FQDN: viya.example.com
 V4_CFG_TLS_MODE: full-stack        # or front-door / ingress-only / disabled
 
@@ -512,7 +512,7 @@ $BASE_DIR/$CLUSTER_NAME/$NAMESPACE/site-config/
 
 ### Step 6: Deploy Baseline Infrastructure
 
-Install cluster-level components (ingress controller, cert-manager, NFS CSI driver):
+Install cluster-level components (Contour ingress controller, cert-manager, NFS CSI driver):
 
 **Docker method:**
 ```bash
@@ -537,7 +537,7 @@ ansible-playbook \
 After this completes, verify the ingress controller has a load balancer endpoint:
 
 ```bash
-kubectl get svc -n ingress-nginx
+kubectl get svc -n projectcontour envoy
 ```
 
 ### Step 7: Deploy SAS Viya Platform
@@ -571,7 +571,7 @@ This step downloads the SAS deployment assets, generates kustomize manifests, an
 After deployment, find the ingress load balancer address:
 
 ```bash
-kubectl get svc -n ingress-nginx ingress-nginx-controller \
+kubectl get svc -n projectcontour envoy \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
 
