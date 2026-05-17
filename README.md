@@ -602,11 +602,10 @@ For example:
 First, look up the ingress controller's LoadBalancer endpoint. The example below uses kubectl. This information can also be looked up in the cloud provider's admin portal.
 
 ```bash
-$ kubectl get service -n ingress-nginx
+$ kubectl get service -n projectcontour envoy
 
-NAME                                 TYPE           CLUSTER-IP    EXTERNAL-IP      PORT(S)                      AGE
-ingress-nginx-controller             LoadBalancer   10.0.225.39   52.52.52.52      80:30603/TCP,443:32014/TCP   12d
-ingress-nginx-controller-admission   ClusterIP      10.0.99.105   <none>           443/TCP                      12d
+NAME    TYPE           CLUSTER-IP    EXTERNAL-IP      PORT(S)                      AGE
+envoy   LoadBalancer   10.0.225.39   52.52.52.52      80:30603/TCP,443:32014/TCP   12d
 ```
 
 In the above example, the ingress controller's LoadBalancer endpoint is 52.52.52.52. So, we would create the following records:
