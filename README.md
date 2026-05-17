@@ -37,7 +37,80 @@
 - Updating to a new SAS Viya platform version, cadence, or a new software offering is not supported using this project.
 - For more information about updating your software, see [KB0041450: The SAS Viya Deployment as a Code project does not perform updates](https://sas.service-now.com/csm?id=kb_article_view&sysparm_article=KB0041450).
 
-This project contains Ansible code that creates a baseline cluster in an existing Kubernetes environment for use with the SAS Viya platform, generates the manifest for a SAS Viya platform software order, and then deploys that order into the specified Kubernetes environment. Here is a list of tasks that this tool can perform (also see [playbook overview](./playbooks/README.md) for info on the default tasks):
+This project contains Ansible code that creates a baseline cluster in an existing Kubernetes environment for use with the SAS Viya platform, generates the manifest for a SAS Viya platform software order, and then deploys that order into the specified Kubernetes environment.
+
+### Deployment Architecture
+
+```mermaid
+flowchart TD
+    User["User / CI Runner"]
+    Ansible["Ansible Engine<br/>(playbooks/playbook.yaml)"]
+    Common["Common Role<br/>Load config, parse tfstate,<br/>set variables"]
+    JumpServer["Jump Server Role<br/>Create NFS export dirs<br/>on bastion host"]
+    Baseline["Baseline Role<br/>Cluster infra via Helm"]
+
+    subgraph Baseline_Components ["Baseline Components"]
+        Ingress["Ingress Controller<br/>nginx / Contour / Istio"]
+        Cert["cert-manager<br/>TLS certs"]
+        CSI["CSI Drivers<br/>NFS / EBS / Azure Disk"]
+        Metrics["metrics-server<br/>(AWS only)"]
+        Autoscaler["cluster-autoscaler<br/>(AWS only)"]
+        Storage["Storage Classes"]
+    end
+
+    VDM["VDM Role<br/>(Viya Deployment Manager)"]
+
+    subgraph VDM_Assets ["1. Download Assets"]
+        OrdersCLI["viya4-orders-cli"]
+        License["license.jwt"]
+        Certs["certs.zip"]
+        Bases["sas-bases tarball"]
+    end
+
+    subgraph VDM_Kustomize ["2. Generate Manifests"]
+        SiteConfig["site-config/"]
+        VDMOverlays["VDM-managed overlays<br/>CAS, TLS, Postgres,<br/>Storage, Sizing, ..."]
+        UserOverlays["User customizations"]
+        Kustomize["kustomize build"]
+    end
+
+    subgraph VDM_Deploy ["3. Deploy SAS Viya"]
+        PathA["Path A: SAS Deployment Operator<br/>(default)"]
+        PathB["Path B: sas-orchestration CLI"]
+        SASViya["SAS Viya Platform<br/>on Kubernetes"]
+    end
+
+    K8s["Kubernetes Cluster<br/>EKS / AKS / GKE / Custom"]
+    DNS["DNS / End Users"]
+
+    User --> Ansible
+    Ansible --> Common
+    Common --> JumpServer
+    JumpServer --> Baseline
+    Baseline --> Ingress & Cert & CSI & Metrics & Autoscaler & Storage
+    Baseline --> VDM
+    VDM --> OrdersCLI
+    OrdersCLI --> License & Certs & Bases
+    Bases --> VDMOverlays
+    VDMOverlays --> Kustomize
+    SiteConfig --> Kustomize
+    UserOverlays --> Kustomize
+    Kustomize --> PathA & PathB
+    PathA & PathB --> SASViya
+    SASViya --> K8s
+    K8s --> DNS
+
+    style Ansible fill:#1f77b4,color:#fff
+    style Common fill:#2ca02c,color:#fff
+    style JumpServer fill:#2ca02c,color:#fff
+    style Baseline fill:#2ca02c,color:#fff
+    style VDM fill:#2ca02c,color:#fff
+    style K8s fill:#ff7f0e,color:#fff
+    style PathA fill:#9467bd,color:#fff
+    style PathB fill:#9467bd,color:#fff
+```
+
+Here is a list of tasks that this tool can perform (also see [playbook overview](./playbooks/README.md) for info on the default tasks):
 
 - Prepare Kubernetes cluster
   - Deploy [ingress-nginx](https://kubernetes.github.io/ingress-nginx)
